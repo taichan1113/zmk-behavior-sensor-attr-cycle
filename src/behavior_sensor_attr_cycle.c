@@ -123,8 +123,8 @@ static int on_keymap_binding_pressed(struct zmk_behavior_binding *binding,
     // --- 追加: ダミーイベントを発行して processor を再起動 ---
     sensor_sample_fetch(config->sensor_device);
     struct sensor_value val_x, val_y;
-    sensor_channel_get(config->sensor_device, SENSOR_CHAN_POS_X, &val_x);
-    sensor_channel_get(config->sensor_device, SENSOR_CHAN_POS_Y, &val_y);
+    sensor_channel_get(config->sensor_device, SENSOR_CHAN_POS_DX, &val_x);
+    sensor_channel_get(config->sensor_device, SENSOR_CHAN_POS_DY, &val_y);
 
     input_report_rel(config->sensor_device, INPUT_REL_X, val_x.val1, true, K_NO_WAIT);
     input_report_rel(config->sensor_device, INPUT_REL_Y, val_y.val1, true, K_NO_WAIT);

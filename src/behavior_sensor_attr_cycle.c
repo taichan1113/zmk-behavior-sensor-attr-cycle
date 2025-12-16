@@ -5,8 +5,8 @@
  */
 #define DT_DRV_COMPAT zmk_behavior_sensor_attr_cycle
 #include <zephyr/device.h>
+#include <zephyr/input/input.h>
 #include <drivers/behavior.h>
-#include <drivers/input/input.h>
 #include <zephyr/logging/log.h>
 #include <zmk/behavior.h>
 #include <zephyr/settings/settings.h>

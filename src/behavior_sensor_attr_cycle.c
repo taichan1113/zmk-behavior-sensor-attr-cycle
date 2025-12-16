@@ -119,9 +119,16 @@ static int on_keymap_binding_pressed(struct zmk_behavior_binding *binding,
     struct sensor_value val = { val1: config->values[data->state.index], val2: 0 };
     sensor_attr_set(config->sensor_device, SENSOR_CHAN_ALL, config->attr, &val);
 
+
     // --- 追加: ダミーイベントを発行して processor を再起動 ---
-    input_report_rel(config->sensor_device, INPUT_REL_X, 1, true, K_NO_WAIT);
-    input_report_rel(config->sensor_device, INPUT_REL_X, -1, true, K_NO_WAIT);
+    sensor_sample_fetch(config->sensor_device);
+    struct sensor_value val_x, val_y;
+    sensor_channel_get(config->sensor_device, SENSOR_CHAN_POS_X, &val_x);
+    sensor_channel_get(config->sensor_device, SENSOR_CHAN_POS_Y, &val_y);
+
+    input_report_rel(config->sensor_device, INPUT_REL_X, val_x.val1, true, K_NO_WAIT);
+    input_report_rel(config->sensor_device, INPUT_REL_Y, val_y.val1, true, K_NO_WAIT);
+
 
 #if IS_ENABLED(CONFIG_SETTINGS)
     if (config->persistant) {
@@ -131,6 +138,11 @@ static int on_keymap_binding_pressed(struct zmk_behavior_binding *binding,
     }
 #endif
     return 0;
+}
+
+static int on_keymap_binding_released(struct zmk_behavior_binding *binding,
+                                      struct zmk_behavior_binding_event event) {
+    return 0; // 何もしない
 }
 
 static const struct behavior_driver_api behavior_sensor_attr_cycle_driver_api = {

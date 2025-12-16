@@ -120,8 +120,8 @@ static int on_keymap_binding_pressed(struct zmk_behavior_binding *binding,
     sensor_attr_set(config->sensor_device, SENSOR_CHAN_ALL, config->attr, &val);
 
     // --- 追加: ダミーイベントを発行して processor を再起動 ---
-    input_report_rel(config->sensor_device, INPUT_REL_X, 0, true, K_NO_WAIT);
-    input_report_rel(config->sensor_device, INPUT_REL_Y, 0, true, K_NO_WAIT);
+    input_report_rel(config->sensor_device, INPUT_REL_X, 1, true, K_NO_WAIT);
+    input_report_rel(config->sensor_device, INPUT_REL_X, -1, true, K_NO_WAIT);
 
 #if IS_ENABLED(CONFIG_SETTINGS)
     if (config->persistant) {

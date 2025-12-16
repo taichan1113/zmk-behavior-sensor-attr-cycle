@@ -5,11 +5,13 @@
  */
 #define DT_DRV_COMPAT zmk_behavior_sensor_attr_cycle
 #include <zephyr/device.h>
-#include <zephyr/input/input.h>
 #include <drivers/behavior.h>
 #include <zephyr/logging/log.h>
 #include <zmk/behavior.h>
 #include <zephyr/settings/settings.h>
+
+#include <zephyr/drivers/sensor.h>
+#include <zephyr/input/input.h>
 
 LOG_MODULE_DECLARE(zmk, CONFIG_ZMK_LOG_LEVEL);
 
@@ -66,6 +68,9 @@ struct behavior_sensor_attr_cycle_data {
     struct k_work_delayable load_work;
     struct k_work_delayable save_work;
 #endif
+    // DPI/属性変更後の安全なイベント再発行用ワーク（割り込み/キー押下コンテキストを避ける）
+    struct k_work event_work;
+
     struct behavior_sensor_attr_cycle_persistant_state state;
 };
 
@@ -91,14 +96,57 @@ static void load_work_callback(struct k_work *work) {
 
     struct sensor_value val = { val1: config->values[data->state.index], val2: 0 };
     sensor_attr_set(config->sensor_device, SENSOR_CHAN_ALL, config->attr, &val);
+
+    // 設定反映後に一度だけイベントを安全な文脈で再発行
+    k_work_submit(&data->event_work);
 }
 
 #endif
+
+// 属性変更直後にセンサーの相対移動を取得して input-processor へ再発行
+static void event_work_handler(struct k_work *work) {
+    struct behavior_sensor_attr_cycle_data *data =
+        CONTAINER_OF(work, struct behavior_sensor_attr_cycle_data, event_work);
+    const struct device *dev = data->dev;
+    const struct behavior_sensor_attr_cycle_config *config = dev->config;
+
+    if (!config->sensor_device || !device_is_ready(config->sensor_device)) {
+        LOG_WRN("Sensor device not ready; skipping re-emit");
+        return;
+    }
+
+    // センサーから最新サンプル取得（SPI/I2C通信あり → スレッドコンテキストで）
+    int err = sensor_sample_fetch(config->sensor_device);
+    if (err) {
+        LOG_WRN("sensor_sample_fetch failed: %d", err);
+        return;
+    }
+
+    struct sensor_value dx = {0}, dy = {0};
+    err = sensor_channel_get(config->sensor_device, SENSOR_CHAN_POS_DX, &dx);
+    if (err) {
+        LOG_WRN("sensor_channel_get DX failed: %d", err);
+        return;
+    }
+    err = sensor_channel_get(config->sensor_device, SENSOR_CHAN_POS_DY, &dy);
+    if (err) {
+        LOG_WRN("sensor_channel_get DY failed: %d", err);
+        return;
+    }
+
+    // processor がイベントを確実に受け取るよう、取得値をそのままレポート
+    // 不要なジャンプ対策が必要なら閾値で 0 に潰す処理を追加しても良い
+    input_report_rel(config->sensor_device, INPUT_REL_X, dx.val1, true, K_NO_WAIT);
+    input_report_rel(config->sensor_device, INPUT_REL_Y, dy.val1, true, K_NO_WAIT);
+}
 
 static int behavior_sensor_attr_cycle_init(const struct device *dev) {
     struct behavior_sensor_attr_cycle_data *data = dev->data;
     const struct behavior_sensor_attr_cycle_config *config = dev->config;
     data->dev = dev;
+
+    // イベント再発行ワーク初期化
+    k_work_init(&data->event_work, event_work_handler);
     
 #if IS_ENABLED(CONFIG_SETTINGS)
     if (config->persistant) {
@@ -116,19 +164,15 @@ static int on_keymap_binding_pressed(struct zmk_behavior_binding *binding,
 
     // Update the index, then send the new value to the sensor
     data->state.index = (data->state.index + binding->param1) % config->length;
-    struct sensor_value val = { val1: config->values[data->state.index], val2: 0 };
+    
+    // センサー属性更新（例：CPI）
+    // struct sensor_value val = { val1: config->values[data->state.index], val2: 0 };
+    // sensor_attr_set(config->sensor_device, SENSOR_CHAN_ALL, config->attr, &val);
+    struct sensor_value val = { .val1 = config->values[data->state.index], .val2 = 0 };
     sensor_attr_set(config->sensor_device, SENSOR_CHAN_ALL, config->attr, &val);
 
-
-    // --- 追加: ダミーイベントを発行して processor を再起動 ---
-    sensor_sample_fetch(config->sensor_device);
-    struct sensor_value val_x, val_y;
-    sensor_channel_get(config->sensor_device, SENSOR_CHAN_POS_DX, &val_x);
-    sensor_channel_get(config->sensor_device, SENSOR_CHAN_POS_DY, &val_y);
-
-    input_report_rel(config->sensor_device, INPUT_REL_X, val_x.val1, true, K_NO_WAIT);
-    input_report_rel(config->sensor_device, INPUT_REL_Y, val_y.val1, true, K_NO_WAIT);
-
+    // 属性変更直後に、センサーから実サンプルを取り直してイベント再発行（workqueue経由で安全に）
+    k_work_submit(&data->event_work);
 
 #if IS_ENABLED(CONFIG_SETTINGS)
     if (config->persistant) {
@@ -147,6 +191,7 @@ static int on_keymap_binding_released(struct zmk_behavior_binding *binding,
 
 static const struct behavior_driver_api behavior_sensor_attr_cycle_driver_api = {
     .binding_pressed = on_keymap_binding_pressed,
+    .binding_released = on_keymap_binding_released,
 #if IS_ENABLED(CONFIG_ZMK_BEHAVIOR_METADATA)
     .parameter_metadata = &metadata,
 #endif // IS_ENABLED(CONFIG_ZMK_BEHAVIOR_METADATA)

@@ -129,6 +129,7 @@ static int on_keymap_binding_pressed(struct zmk_behavior_binding *binding,
 }
 
 static const struct behavior_driver_api behavior_sensor_attr_cycle_driver_api = {
+    .locality = BEHAVIOR_LOCALITY_EVENT_SOURCE,
     .binding_pressed = on_keymap_binding_pressed,
 #if IS_ENABLED(CONFIG_ZMK_BEHAVIOR_METADATA)
     .parameter_metadata = &metadata,

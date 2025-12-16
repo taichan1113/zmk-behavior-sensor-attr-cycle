@@ -6,6 +6,7 @@
 #define DT_DRV_COMPAT zmk_behavior_sensor_attr_cycle
 #include <zephyr/device.h>
 #include <drivers/behavior.h>
+#include <drivers/input/input.h>
 #include <zephyr/logging/log.h>
 #include <zmk/behavior.h>
 #include <zephyr/settings/settings.h>
@@ -117,6 +118,10 @@ static int on_keymap_binding_pressed(struct zmk_behavior_binding *binding,
     data->state.index = (data->state.index + binding->param1) % config->length;
     struct sensor_value val = { val1: config->values[data->state.index], val2: 0 };
     sensor_attr_set(config->sensor_device, SENSOR_CHAN_ALL, config->attr, &val);
+
+    // --- 追加: ダミーイベントを発行して processor を再起動 ---
+    input_report_rel(config->sensor_device, INPUT_REL_X, 0, true, K_NO_WAIT);
+    input_report_rel(config->sensor_device, INPUT_REL_Y, 0, true, K_NO_WAIT);
 
 #if IS_ENABLED(CONFIG_SETTINGS)
     if (config->persistant) {
